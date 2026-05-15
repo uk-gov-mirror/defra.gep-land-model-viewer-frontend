@@ -1,14 +1,11 @@
-import esriConfig from '@arcgis/core/config.js'
 import InteractiveMap, { EVENTS } from '@defra/interactive-map'
-import createEsriProvider from '@defra/interactive-map/providers/esri'
+import createOpenLayersProvider from '@defra/interactive-map/providers/openlayers'
 import mapStylesPlugin from '@defra/interactive-map/plugins/map-styles'
 import searchPlugin from '@defra/interactive-map/plugins/search'
 import { mapStyles } from './config/map-styles.js'
 import { registerGridController } from './plugins/grid/index.js'
 import { registerLayersPanel } from './plugins/layers/index.js'
-import { registerViewMode, createViewModePlugin } from './plugins/view-mode/index.js'
-
-esriConfig.assetsPath = '/public/arcgis-assets'
+import { createViewModePlugin, registerViewMode } from './plugins/view-mode/index.js'
 
 const MAP_ID = 'land-map'
 const DEFAULT_CENTER = [418700, 385100]
@@ -18,7 +15,7 @@ const MAX_ZOOM = 20
 
 const map = new InteractiveMap(MAP_ID, {
   behaviour: 'inline',
-  mapProvider: createEsriProvider(),
+  mapProvider: createOpenLayersProvider({ zoomAlignment: 'world' }),
   mapStyle: mapStyles[0],
   mapLabel: 'Land model grid viewer',
   center: DEFAULT_CENTER,
@@ -62,8 +59,8 @@ const map = new InteractiveMap(MAP_ID, {
   ]
 })
 
-map.on(EVENTS.MAP_READY, async ({ map: arcgisMap, view }) => {
-  const gridController = registerGridController(map, arcgisMap, view)
-  registerViewMode(map, view, { grid: gridController })
-  registerLayersPanel(map, arcgisMap, view)
+map.on(EVENTS.MAP_READY, (/** @type {{ map: import('ol/Map').default }} */ { map: olMap }) => {
+  registerLayersPanel(map, olMap)
+  const grid = registerGridController(map, olMap)
+  registerViewMode(map, olMap, { grid })
 })
