@@ -95,5 +95,16 @@ export const operationalDatasets = [
       styleUrl: `${BASE_URL}/crop_map_of_england/Crop_Map_Of_England_2020.lyrx`,
       lowercaseFields: true // LUCODE -> lucode for style
     }
+  },
+  {
+    id: 'flood-map-for-planning-fgb',
+    label: 'Flood Map for Planning, Flood Zones 2 and 3 (FGB)',
+    source: {
+      type: 'fgb',
+      url: `${BASE_URL}/flood_map_for_planning_flood_zones/flood_map_for_planning.fgb`,
+      opacity: 0.7,
+      styleUrl: `${BASE_URL}/flood_map_for_planning_flood_zones/Flood_Zones_2_3_Rivers_and_Sea.lyrx`,
+      fallbackMinZoom: 7 // large file with no minScale
+    }
   }
 ]

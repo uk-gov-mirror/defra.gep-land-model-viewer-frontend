@@ -51,7 +51,8 @@ vi.mock('../../config/datasets.js', () => ({
         type: 'fgb',
         url: '/land-model/vector/test.fgb',
         opacity: 0.7,
-        styleUrl: '/land-model/vector/test.lyrx'
+        styleUrl: '/land-model/vector/test.lyrx',
+        fallbackMinZoom: 7
       }
     },
     {
@@ -60,6 +61,17 @@ vi.mock('../../config/datasets.js', () => ({
       source: {
         type: 'fgb',
         url: '/land-model/vector/inline.fgb',
+        opacity: 0.7,
+        fallbackMinZoom: 7,
+        style: { 'fill-color': 'rgba(178, 102, 204, 0.42)' }
+      }
+    },
+    {
+      id: 'test-fgb-uncapped',
+      label: 'Test FlatGeobuf with no zoom cap at all',
+      source: {
+        type: 'fgb',
+        url: '/land-model/vector/uncapped.fgb',
         opacity: 0.7,
         style: { 'fill-color': 'rgba(178, 102, 204, 0.42)' }
       }
@@ -653,6 +665,7 @@ describe('#registerLayersPanel', () => {
     expect(layerOptions.properties).toEqual({ id: 'gep-test-fgb' })
     expect(layerOptions.style['fill-color'][0]).toBe('match')
     expect(layerOptions.maxResolution).toBe(28.109)
+    expect(layerOptions.minZoom).toBeUndefined()
     expect(layerOptions.opacity).toBe(0.7)
   })
 
@@ -671,6 +684,22 @@ describe('#registerLayersPanel', () => {
     const [layerOptions] = WebGLVectorLayer.mock.calls[0]
     expect(layerOptions.style).toEqual({ 'fill-color': 'rgba(178, 102, 204, 0.42)' })
     expect(layerOptions.maxResolution).toBeUndefined()
+    expect(layerOptions.minZoom).toBe(6)
+  })
+
+  test('a FlatGeobuf layer with neither a layer file nor a fallback renders at every zoom', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    createLayerCheckbox('test-fgb-uncapped').dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(olMap.addLayer).toHaveBeenCalled()
+    })
+
+    const [layerOptions] = WebGLVectorLayer.mock.calls[0]
+    expect(layerOptions.maxResolution).toBeUndefined()
+    expect(layerOptions.minZoom).toBeUndefined()
   })
 
   test('a layer file that cannot be read is logged and clears the checkbox', async () => {

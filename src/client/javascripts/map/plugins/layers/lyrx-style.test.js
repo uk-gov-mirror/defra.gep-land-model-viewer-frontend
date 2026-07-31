@@ -205,7 +205,8 @@ describe('#compileLyrxStyle', () => {
     ['ancient-woodland'],
     ['agricultural-land-classification'],
     ['crop-map-of-england-2020'],
-    ['wood-pasture-and-parkland']
+    ['wood-pasture-and-parkland'],
+    ['flood-zones-2-3-rivers-and-sea']
   ])('%s compiles to a stable flat style', async (name) => {
     const lyrx = JSON.parse(readFileSync(new URL(`./fixtures/${name}.lyrx`, import.meta.url), 'utf8'))
 

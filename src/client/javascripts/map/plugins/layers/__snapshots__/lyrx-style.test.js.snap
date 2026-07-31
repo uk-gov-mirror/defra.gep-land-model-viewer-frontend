@@ -846,6 +846,36 @@ exports[`#compileLyrxStyle > crop-map-of-england-2020 compiles to a stable flat 
 }
 `;
 
+exports[`#compileLyrxStyle > flood-zones-2-3-rivers-and-sea compiles to a stable flat style 1`] = `
+{
+  "maxResolution": undefined,
+  "style": {
+    "fill-color": [
+      "case",
+      [
+        "==",
+        [
+          "get",
+          "flood_zone",
+        ],
+        "FZ2",
+      ],
+      "#9cd0fc",
+      [
+        "==",
+        [
+          "get",
+          "flood_zone",
+        ],
+        "FZ3",
+      ],
+      "#3a4487",
+      "rgba(0, 0, 0, 0)",
+    ],
+  },
+}
+`;
+
 exports[`#compileLyrxStyle > living-england compiles to a stable flat style 1`] = `
 {
   "maxResolution": 28.10884205719245,

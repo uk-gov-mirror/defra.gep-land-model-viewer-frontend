@@ -454,8 +454,18 @@ async function createCogLayer (dataset, layerId) {
   })
 }
 
+// The layer file's own minScale wins. OL hides a layer at its minZoom, so step
+// back one to make the configured level the first that renders.
+function fallbackMinZoomFor (maxResolution, fallbackMinZoom) {
+  if (maxResolution !== undefined || fallbackMinZoom === undefined) {
+    return undefined
+  }
+
+  return fallbackMinZoom - 1
+}
+
 async function createFlatGeobufLayer (dataset, layerId) {
-  const { url, styleUrl, attribution, opacity, lowercaseFields = false, style: manualStyle } = dataset.source
+  const { url, styleUrl, attribution, opacity, lowercaseFields = false, style: manualStyle, fallbackMinZoom } = dataset.source
   const { style, maxResolution } = styleUrl ? await loadLyrxStyle(styleUrl, { lowercaseFields }) : {}
   const source = new VectorSource({ strategy: bbox, attributions: attribution })
 
@@ -465,6 +475,7 @@ async function createFlatGeobufLayer (dataset, layerId) {
     properties: { id: layerId },
     source,
     maxResolution,
+    minZoom: fallbackMinZoomFor(maxResolution, fallbackMinZoom),
     style: manualStyle ?? style,
     opacity
   })
