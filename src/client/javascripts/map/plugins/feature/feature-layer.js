@@ -7,6 +7,7 @@ import Stroke from 'ol/style/Stroke.js'
 import { getBasemapLayer } from '../../basemap.js'
 import { FEATURE_SOURCE_LAYER, MVT_LAYER_PROPERTY } from './constants.js'
 import { DEFRA_GREEN, DEFRA_GREEN_DARK, withAlpha } from '../../config/colours.js'
+import { OVERLAY_Z_INDEX } from '../../config/layers.js'
 
 const HIT_DETECTION_FILL_COLOUR = 'rgba(0, 0, 0, 0.01)' // Near-transparent so parcel interiors register clicks
 
@@ -45,6 +46,7 @@ export function createFeatureLayer (map, tilesetUrl) {
     style: styleFn,
     renderMode: 'vector',
     visible: false,
+    zIndex: OVERLAY_Z_INDEX,
     properties: { id: 'gep-feature-overlay' }
   })
 

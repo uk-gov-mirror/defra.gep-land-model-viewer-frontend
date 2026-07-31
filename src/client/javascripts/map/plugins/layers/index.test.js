@@ -31,6 +31,43 @@ vi.mock('../../config/datasets.js', () => ({
         layers: ['layer1', 'layer2'],
         attribution: 'Test Attribution'
       }
+    },
+    {
+      id: 'test-cog',
+      label: 'Test COG',
+      source: {
+        type: 'cog',
+        url: '/land-model/raster/test.tif',
+        opacity: 0.8,
+        normalize: false,
+        interpolate: false,
+        style: { color: ['band', 1] }
+      }
+    },
+    {
+      id: 'test-fgb',
+      label: 'Test FlatGeobuf',
+      source: {
+        type: 'fgb',
+        url: '/land-model/vector/test.fgb',
+        opacity: 0.7,
+        styleUrl: '/land-model/vector/test.lyrx'
+      }
+    },
+    {
+      id: 'test-fgb-inline',
+      label: 'Test FlatGeobuf without a layer file',
+      source: {
+        type: 'fgb',
+        url: '/land-model/vector/inline.fgb',
+        opacity: 0.7,
+        style: { 'fill-color': 'rgba(178, 102, 204, 0.42)' }
+      }
+    },
+    {
+      id: 'test-unknown',
+      label: 'Unsupported source',
+      source: { type: 'something-else', url: '/nowhere' }
     }
   ]
 }))
@@ -45,15 +82,7 @@ vi.mock('./render.js', async (importOriginal) => {
 })
 
 vi.mock('ol/layer/Image.js', () => ({
-  default: vi.fn().mockImplementation(function (opts) {
-    const properties = opts?.properties || {}
-    this._opts = opts
-    this.get = vi.fn((key) => properties[key])
-    this.getVisible = vi.fn(() => true)
-    this.setVisible = vi.fn()
-    this.getSource = vi.fn(() => opts?.source)
-    this.getOpacity = vi.fn(() => opts?.opacity ?? 1)
-  })
+  default: vi.fn().mockImplementation(stubLayer)
 }))
 
 vi.mock('ol/source/ImageWMS.js', () => ({
@@ -64,6 +93,57 @@ vi.mock('ol/source/ImageWMS.js', () => ({
   })
 }))
 
+function stubLayer (opts) {
+  const properties = opts?.properties || {}
+  let visible = true
+  this._opts = opts
+  this.get = vi.fn((key) => properties[key])
+  this.getVisible = vi.fn(() => visible)
+  this.setVisible = vi.fn((next) => {
+    visible = next
+  })
+  this.getSource = vi.fn(() => opts?.source)
+  this.getOpacity = vi.fn(() => opts?.opacity ?? 1)
+}
+
+vi.mock('ol/layer/WebGLTile.js', () => ({
+  default: vi.fn().mockImplementation(stubLayer)
+}))
+
+vi.mock('ol/layer/WebGLVector.js', () => ({
+  default: vi.fn().mockImplementation(stubLayer)
+}))
+
+vi.mock('ol/source/GeoTIFF.js', () => ({
+  default: vi.fn().mockImplementation(function (opts) {
+    this._opts = opts
+  })
+}))
+
+vi.mock('ol/source/Vector.js', () => ({
+  default: vi.fn().mockImplementation(function (opts) {
+    this._opts = opts
+    this.setLoader = vi.fn()
+  })
+}))
+
+vi.mock('flatgeobuf/lib/mjs/ol.js', () => ({
+  createLoader: vi.fn(() => 'fgb-loader')
+}))
+
+vi.mock('./lyrx-style.js', () => ({
+  loadLyrxStyle: vi.fn(async () => ({
+    style: { 'fill-color': ['match', ['get', 'A_pred'], 'Bog', '#c29ed7', 'rgba(0, 0, 0, 0)'] },
+    maxResolution: 28.109
+  }))
+}))
+
+const { default: GeoTIFF } = await import('ol/source/GeoTIFF.js')
+const { default: WebGLTileLayer } = await import('ol/layer/WebGLTile.js')
+const { default: WebGLVectorLayer } = await import('ol/layer/WebGLVector.js')
+const { default: VectorSource } = await import('ol/source/Vector.js')
+const { createLoader } = await import('flatgeobuf/lib/mjs/ol.js')
+const { loadLyrxStyle } = await import('./lyrx-style.js')
 const { registerLayersPanel, resetCapabilitiesCache } = await import('./index.js')
 const { datasets } = await import('../../config/datasets.js')
 const { renderLayersPanelHtml } = await import('./render.js')
@@ -146,6 +226,9 @@ function createMapHarness () {
 function createOlMapMock () {
   const layers = []
   return {
+    addOverlay: vi.fn(),
+    on: vi.fn(),
+    forEachFeatureAtPixel: vi.fn(),
     addLayer: vi.fn((layer) => { layers.push(layer) }),
     removeLayer: vi.fn((layer) => {
       const idx = layers.indexOf(layer)
@@ -489,7 +572,7 @@ describe('#registerLayersPanel', () => {
     })
   })
 
-  test('layer checkbox change removes WMS layer when unchecked', async () => {
+  test('layer checkbox change hides the layer when unchecked rather than removing it', async () => {
     vi.stubGlobal('fetch', vi.fn())
     registerLayersPanel(interactiveMap, olMap)
 
@@ -501,8 +584,128 @@ describe('#registerLayersPanel', () => {
     checkbox.dispatchEvent(new Event('change', { bubbles: true }))
 
     await vi.waitFor(() => {
-      expect(olMap.removeLayer).toHaveBeenCalledWith(mockLayer)
+      expect(mockLayer.setVisible).toHaveBeenCalledWith(false)
     })
+    expect(olMap.removeLayer).not.toHaveBeenCalled()
+  })
+
+  test('unchecking a layer that was never added builds nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    const checkbox = createLayerCheckbox('test-fgb', false)
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(checkbox.disabled).toBe(false)
+    })
+
+    expect(loadLyrxStyle).not.toHaveBeenCalled()
+    expect(olMap.addLayer).not.toHaveBeenCalled()
+  })
+
+  test('layer checkbox change adds a COG layer with the dataset source options', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    createLayerCheckbox('test-cog').dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(olMap.addLayer).toHaveBeenCalled()
+    })
+
+    expect(GeoTIFF).toHaveBeenCalledWith({
+      sources: [{ url: '/land-model/raster/test.tif' }],
+      normalize: false,
+      interpolate: false
+    })
+
+    const [layerOptions] = WebGLTileLayer.mock.calls[0]
+    expect(layerOptions.properties).toEqual({ id: 'gep-test-cog' })
+    expect(layerOptions.opacity).toBe(0.8)
+    expect(layerOptions.style.color).toEqual(['band', 1])
+  })
+
+  test('layer checkbox change adds a FlatGeobuf layer with a bbox loader and the supplier styling', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    createLayerCheckbox('test-fgb').dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(olMap.addLayer).toHaveBeenCalled()
+    })
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect(createLoader).toHaveBeenCalledWith(
+      expect.anything(),
+      '/land-model/vector/test.fgb',
+      'EPSG:27700',
+      expect.any(Function)
+    )
+    expect(loadLyrxStyle).toHaveBeenCalledWith('/land-model/vector/test.lyrx', { lowercaseFields: false })
+
+    const source = VectorSource.mock.instances[0]
+    expect(source.setLoader).toHaveBeenCalledWith('fgb-loader')
+
+    const [layerOptions] = WebGLVectorLayer.mock.calls[0]
+    expect(layerOptions.properties).toEqual({ id: 'gep-test-fgb' })
+    expect(layerOptions.style['fill-color'][0]).toBe('match')
+    expect(layerOptions.maxResolution).toBe(28.109)
+    expect(layerOptions.opacity).toBe(0.7)
+  })
+
+  test('a FlatGeobuf layer with no layer file styles itself inline without fetching one', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    createLayerCheckbox('test-fgb-inline').dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(olMap.addLayer).toHaveBeenCalled()
+    })
+
+    expect(loadLyrxStyle).not.toHaveBeenCalled()
+
+    const [layerOptions] = WebGLVectorLayer.mock.calls[0]
+    expect(layerOptions.style).toEqual({ 'fill-color': 'rgba(178, 102, 204, 0.42)' })
+    expect(layerOptions.maxResolution).toBeUndefined()
+  })
+
+  test('a layer file that cannot be read is logged and clears the checkbox', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    loadLyrxStyle.mockRejectedValueOnce(new Error('lyrx unreachable'))
+    registerLayersPanel(interactiveMap, olMap)
+
+    const checkbox = createLayerCheckbox('test-fgb')
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(consoleError).toHaveBeenCalled()
+    })
+
+    expect(consoleError).toHaveBeenCalledWith(
+      'Failed to load data layer test-fgb',
+      expect.objectContaining({ message: 'lyrx unreachable' })
+    )
+    expect(olMap.addLayer).not.toHaveBeenCalled()
+    expect(checkbox.checked).toBe(false)
+
+    consoleError.mockRestore()
+  })
+
+  test('layer checkbox change ignores an unsupported source type', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    createLayerCheckbox('test-unknown').dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(document.getElementById('layer-test-unknown').disabled).toBe(false)
+    })
+
+    expect(olMap.addLayer).not.toHaveBeenCalled()
   })
 
   test('search form submit filters layers', () => {
@@ -1108,5 +1311,33 @@ describe('#registerLayersPanel', () => {
       expect(keyContent.querySelector('.app-map__key-legend')).toBeNull()
       expect(keyContent.textContent).toContain('Enable data layers to view the key.')
     })
+  })
+
+  test('hover reads feature properties and raster bands under the cursor', () => {
+    olMap._layers.push({
+      get: (key) => (key === 'id' ? 'gep-test-cog' : undefined),
+      getVisible: () => true,
+      getData: () => new Float32Array([142.25, 255])
+    })
+    olMap.forEachFeatureAtPixel.mockImplementation((_pixel, callback, options) => {
+      const layer = { get: (key) => (key === 'id' ? 'gep-test-fgb' : undefined) }
+      if (options.layerFilter(layer)) {
+        callback({
+          getGeometryName: () => 'geometry',
+          getProperties: () => ({ geometry: {}, A_pred: 'Bog' })
+        }, layer)
+      }
+    })
+    registerLayersPanel(interactiveMap, olMap)
+
+    const [, onPointerMove] = olMap.on.mock.calls.find(([type]) => type === 'pointermove')
+    const element = olMap.addOverlay.mock.calls[0][0].getElement()
+
+    onPointerMove({ pixel: [0, 0], coordinate: [1, 2] })
+
+    const groups = [...element.querySelectorAll('.app-map__hover-info-group')]
+    expect(groups.map(group => group.querySelector('strong').textContent)).toEqual(['Test FlatGeobuf', 'Test COG'])
+    expect(element.textContent).toContain('A_pred: Bog')
+    expect(element.textContent).toContain('band 1: 142.25')
   })
 })

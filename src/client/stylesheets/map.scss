@@ -397,3 +397,17 @@ html:has(.app-map-page) {
 .app-map__view-mode-option[aria-pressed="true"] {
   font-weight: $govuk-font-weight-bold;
 }
+
+.app-map__hover-info {
+  max-width: 480px;
+  padding: govuk-spacing(1);
+  border: 1px solid govuk-colour("black", $variant: "tint-80");
+  background: govuk-colour("white");
+  @include govuk-font-size($size: 16);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.app-map__hover-info-group + .app-map__hover-info-group {
+  margin-top: govuk-spacing(2);
+}

@@ -1,21 +1,57 @@
+import { parse, newParsingContext, ColorType } from 'ol/expr/expression.js'
 import { datasets } from './datasets.js'
+import { operationalDatasets } from './operational-datasets.js'
+
+const wmsDatasets = datasets.filter(dataset => dataset.source.type === 'wms')
 
 describe('#datasets', () => {
-  test('exports an array of datasets from EA catalog', () => {
-    expect(Array.isArray(datasets)).toBe(true)
-    expect(datasets.length).toBe(6)
+  test('combines the operational datasets with the EA catalog', () => {
+    expect(wmsDatasets.length).toBe(6)
+    expect(datasets.slice(0, operationalDatasets.length)).toEqual(operationalDatasets)
   })
 
-  test('each dataset has required properties', () => {
+  test('every dataset has an id, label and typed source', () => {
     for (const dataset of datasets) {
       expect(dataset).toHaveProperty('id')
       expect(dataset).toHaveProperty('label')
-      expect(dataset).toHaveProperty('source')
-      expect(dataset.source).toHaveProperty('type', 'wms')
       expect(dataset.source).toHaveProperty('url')
+      expect(['wms', 'cog', 'fgb']).toContain(dataset.source.type)
+    }
+  })
+
+  test('ids are unique', () => {
+    const ids = datasets.map(dataset => dataset.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  test('EA datasets point at the EA spatial data host and carry attribution', () => {
+    for (const dataset of wmsDatasets) {
       expect(dataset.source.url).toMatch(/^https:\/\/environment\.data\.gov\.uk\/spatialdata\//)
-      expect(dataset.source).toHaveProperty('attribution')
       expect(dataset.source.attribution).toMatch(/Environment Agency/)
+    }
+  })
+
+  test('every FlatGeobuf dataset styles itself from a layer file or an inline style that compiles', () => {
+    const fgbDatasets = datasets.filter(dataset => dataset.source.type === 'fgb')
+    expect(fgbDatasets.length).toBeGreaterThan(0)
+
+    for (const dataset of fgbDatasets) {
+      const { styleUrl, style } = dataset.source
+      expect(styleUrl ?? style).toBeDefined()
+      if (style) {
+        expect(() => parse(style['fill-color'], ColorType, newParsingContext())).not.toThrow()
+      } else {
+        expect(styleUrl).toMatch(/\.lyrx$/)
+      }
+    }
+  })
+
+  test('COG style expressions compile with the OpenLayers parser', () => {
+    const cogDatasets = datasets.filter(dataset => dataset.source.type === 'cog')
+    expect(cogDatasets.length).toBeGreaterThan(0)
+
+    for (const dataset of cogDatasets) {
+      expect(() => parse(dataset.source.style.color, ColorType, newParsingContext())).not.toThrow()
     }
   })
 })

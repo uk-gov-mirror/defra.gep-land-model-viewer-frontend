@@ -1,8 +1,17 @@
 import { EVENTS } from '@defra/interactive-map'
+import Overlay from 'ol/Overlay.js'
 import ImageLayer from 'ol/layer/Image.js'
 import ImageWMS from 'ol/source/ImageWMS.js'
+import GeoTIFF from 'ol/source/GeoTIFF.js'
+import WebGLTileLayer from 'ol/layer/WebGLTile.js'
+import WebGLVectorLayer from 'ol/layer/WebGLVector.js'
+import VectorSource from 'ol/source/Vector.js'
+import { bbox } from 'ol/loadingstrategy.js'
+import { createLoader } from 'flatgeobuf/lib/mjs/ol.js'
 import { datasets } from '../../config/datasets.js'
 import { mapStyles } from '../../config/map-styles.js'
+import { datasetForLayer, layerIdFor } from '../../config/layers.js'
+import { loadLyrxStyle } from './lyrx-style.js'
 import {
   buildFeatureInfoFragment,
   buildKeyFragment,
@@ -25,9 +34,18 @@ const KEY_BUTTON_ID = 'gep-key'
 const KEY_PANEL_ID = 'gep-key'
 const KEY_CONTENT_ID = 'gep-key-content'
 
+const EPSG_27700 = 'EPSG:27700'
+const UNKNOWN_LAYER_LABEL = 'Unknown Layer'
+
+let listeners = null
+
 export function registerLayersPanel (interactiveMap, map, initialStyleId) {
+  listeners?.abort()
+  listeners = new AbortController()
+
   registerLayerListPanel(interactiveMap, map, initialStyleId)
   registerIdentifyPanel(interactiveMap, map)
+  registerHoverValues(map)
 }
 
 function setBaseAttribution (mapStyleId) {
@@ -87,17 +105,18 @@ function registerLayerListPanel (interactiveMap, map, initialStyleId) {
     }
     const visible = input.checked
     setLayerInputLoading(input, true)
-    toggleLayer(dataset, visible, map).catch(() => {
-      // Keep UI state in sync with the map even when a layer update fails.
+    toggleLayer(dataset, visible, map).catch((err) => {
+      console.error(`Failed to load data layer ${dataset.id}`, err)
     }).finally(() => {
-      if (visible && !findLayerById(map, `gep-${dataset.id}`)) {
+      // Keep UI state in sync with the map even when a layer update fails.
+      if (visible && !findLayerById(map, layerIdFor(dataset))) {
         input.checked = false
       }
       refreshKey(map)
       refreshAttributions()
       setLayerInputLoading(input, false)
     })
-  })
+  }, { signal: listeners.signal })
 
   document.addEventListener('submit', (event) => {
     if (!event.target.matches('[data-app-layer-search-form]')) {
@@ -105,14 +124,14 @@ function registerLayerListPanel (interactiveMap, map, initialStyleId) {
     }
     event.preventDefault()
     filterLayers(event.target.querySelector('[data-app-layer-search]')?.value ?? '')
-  })
+  }, { signal: listeners.signal })
 
   document.addEventListener('search', (event) => {
     const search = event.target.closest('[data-app-layer-search]')
     if (search) {
       filterLayers(search.value)
     }
-  })
+  }, { signal: listeners.signal })
 }
 
 function registerKeyPanel (interactiveMap) {
@@ -266,8 +285,8 @@ async function showFeatureInfo (coords, map, interactiveMap, signal) {
 }
 
 async function describeLayerFeatures (layer, mapPoint, map, signal) {
-  const dataset = datasets.find(d => `gep-${d.id}` === layer.get('id'))
-  const layerName = dataset?.label ?? 'Unknown Layer'
+  const dataset = datasetForLayer(layer, datasets)
+  const layerName = dataset?.label ?? UNKNOWN_LAYER_LABEL
 
   try {
     const features = await fetchFeatureInfo(layer, mapPoint, map, signal)
@@ -296,7 +315,7 @@ async function fetchFeatureInfo (layer, mapPoint, map, signal) {
     LAYERS: layerNames,
     QUERY_LAYERS: layerNames,
     INFO_FORMAT: 'application/json',
-    CRS: 'EPSG:27700',
+    CRS: EPSG_27700,
     BBOX: `${extent[0]},${extent[1]},${extent[2]},${extent[3]}`,
     WIDTH: String(Math.round(size[0])),
     HEIGHT: String(Math.round(size[1])),
@@ -363,35 +382,55 @@ function setLayerInputLoading (input, loading) {
 }
 
 async function toggleLayer (dataset, visible, map) {
-  const layerId = `gep-${dataset.id}`
+  const layerId = layerIdFor(dataset)
   const existing = findLayerById(map, layerId)
-  if (!visible) {
-    if (existing) {
-      map.removeLayer(existing)
-    }
-    return
-  }
   if (existing) {
-    existing.setVisible(true)
+    existing.setVisible(visible)
     return
   }
 
+  if (!visible) {
+    return
+  }
+
+  const layer = await createLayer(dataset, layerId)
+  if (!layer) {
+    return
+  }
+
+  map.addLayer(layer)
+}
+
+async function createLayer (dataset, layerId) {
+  const { type } = dataset.source
+  if (type === 'cog') {
+    return createCogLayer(dataset, layerId)
+  } else if (type === 'fgb') {
+    return createFlatGeobufLayer(dataset, layerId)
+  } else if (type === 'wms') {
+    return createWmsLayer(dataset, layerId)
+  } else {
+    return null
+  }
+}
+
+async function createWmsLayer (dataset, layerId) {
   const layerNames = dataset.source.layers?.length
     ? dataset.source.layers
     : await fetchWmsLayerNames(dataset.source.url)
 
   if (!layerNames.length) {
-    return
+    return null
   }
 
   const params = {
     LAYERS: layerNames.join(','),
     FORMAT: 'image/png',
     TRANSPARENT: true,
-    CRS: 'EPSG:27700'
+    CRS: EPSG_27700
   }
 
-  map.addLayer(new ImageLayer({
+  return new ImageLayer({
     properties: { id: layerId, wms: true },
     source: new ImageWMS({
       url: dataset.source.url,
@@ -401,7 +440,34 @@ async function toggleLayer (dataset, visible, map) {
       crossOrigin: 'anonymous'
     }),
     opacity: dataset.source.opacity ?? 1
-  }))
+  })
+}
+
+async function createCogLayer (dataset, layerId) {
+  const { url, opacity, style, normalize, interpolate } = dataset.source
+
+  return new WebGLTileLayer({
+    properties: { id: layerId },
+    source: new GeoTIFF({ sources: [{ url }], normalize, interpolate }),
+    style: { color: style.color },
+    opacity
+  })
+}
+
+async function createFlatGeobufLayer (dataset, layerId) {
+  const { url, styleUrl, attribution, opacity, lowercaseFields = false, style: manualStyle } = dataset.source
+  const { style, maxResolution } = styleUrl ? await loadLyrxStyle(styleUrl, { lowercaseFields }) : {}
+  const source = new VectorSource({ strategy: bbox, attributions: attribution })
+
+  source.setLoader(createLoader(source, url, EPSG_27700, bbox))
+
+  return new WebGLVectorLayer({
+    properties: { id: layerId },
+    source,
+    maxResolution,
+    style: manualStyle ?? style,
+    opacity
+  })
 }
 
 function refreshKey (map) {
@@ -411,8 +477,8 @@ function refreshKey (map) {
   }
 
   const entries = getVisibleWmsLayers(map).map(layer => {
-    const dataset = datasets.find(d => `gep-${d.id}` === layer.get('id'))
-    const label = dataset?.label ?? 'Unknown Layer'
+    const dataset = datasetForLayer(layer, datasets)
+    const label = dataset?.label ?? UNKNOWN_LAYER_LABEL
     const source = layer.getSource()
     const layerNames = source.getParams().LAYERS
     const baseUrl = getSourceUrl(source)
@@ -429,7 +495,7 @@ let baseAttribution
 
 function getCurrentAttribution (map) {
   const visibleAttributions = getVisibleWmsLayers(map)
-    .map(layer => datasets.find(d => `gep-${d.id}` === layer.get('id'))?.source.attribution)
+    .map(layer => datasetForLayer(layer, datasets)?.source.attribution)
     .filter(Boolean)
 
   return [...new Set([baseAttribution, ...visibleAttributions])].join(' | ')
@@ -441,6 +507,59 @@ function refreshAttributionsForVisibleLayers (map) {
   if (attributionEl) {
     attributionEl.textContent = attribution
   }
+}
+
+// TODO: temp output to inspect the new operational dataset layers
+// inspect functionality is being rewritten so dumping out here for now
+function registerHoverValues (map) {
+  const element = document.createElement('div')
+  element.className = 'app-map__hover-info'
+  element.setAttribute('aria-hidden', 'true')
+
+  const overlay = new Overlay({ element, offset: [12, 0], positioning: 'center-left' })
+  map.addOverlay(overlay)
+
+  map.on('pointermove', (event) => {
+    const groups = event.dragging ? [] : valuesAt(map, event.pixel)
+    element.innerHTML = groups.map(toGroupHtml).join('')
+    overlay.setPosition(groups.length ? event.coordinate : undefined)
+  })
+}
+
+function toGroupHtml ({ label, values }) {
+  const rows = values.map(([key, value]) => `<div><strong>${key}:</strong> ${value}</div>`)
+
+  return `<div class="app-map__hover-info-group"><strong>${label}</strong>${rows.join('')}</div>`
+}
+
+function valuesAt (map, pixel) {
+  const groups = []
+
+  map.forEachFeatureAtPixel(pixel, (feature, layer) => {
+    const geometryName = feature.getGeometryName()
+    groups.push({
+      label: datasetForLayer(layer, datasets)?.label ?? UNKNOWN_LAYER_LABEL,
+      values: Object.entries(feature.getProperties()).filter(([key]) => key !== geometryName)
+    })
+  }, { hitTolerance: 0, layerFilter: (layer) => datasetForLayer(layer, datasets)?.source.type === 'fgb' })
+
+  for (const layer of map.getLayers().getArray()) {
+    const dataset = datasetForLayer(layer, datasets)
+    if (dataset?.source.type !== 'cog' || !layer.getVisible()) {
+      continue
+    }
+
+    // The last band is the mask, so slice it off to get the values.
+    const bands = layer.getData(pixel)
+    if (bands?.at(-1)) {
+      groups.push({
+        label: dataset.label,
+        values: Array.from(bands.slice(0, -1), (value, index) => [`band ${index + 1}`, value])
+      })
+    }
+  }
+
+  return groups
 }
 
 function filterLayers (query) {

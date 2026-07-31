@@ -41,12 +41,15 @@ const contentSecurityPolicy = {
 // Environment Agency WMS host for overlay datasets.
 const EA_DATA_HOST = 'https://environment.data.gov.uk'
 
+// Supplier blob storage holding the operational dataset COG and FlatGeobuf files.
+const OPERATIONAL_DATASET_HOST = 'https://gepcloudnativedata.blob.core.windows.net'
+
 // Per-route override applied only to routes that render the map. Blankie
 // replaces (does not merge) the global directives, so this must be complete.
 export const mapContentSecurityPolicy = {
   defaultSrc: ['self'],
   fontSrc: ['self'],
-  connectSrc: ['self', ...gtmConnectSrc, EA_DATA_HOST],
+  connectSrc: ['self', ...gtmConnectSrc, EA_DATA_HOST, OPERATIONAL_DATASET_HOST],
   mediaSrc: ['self'],
   styleSrc: ['self'],
   scriptSrc: ['self', ...gtmScriptSrc],

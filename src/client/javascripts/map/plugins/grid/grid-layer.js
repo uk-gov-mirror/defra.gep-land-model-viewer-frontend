@@ -7,6 +7,7 @@ import WebGLVectorLayer from 'ol/layer/WebGLVector.js'
 import { CELL_SIZE_METRES, snapDown, snapUp } from './cell-at-point.js'
 import { GRID_VISIBLE_MIN_ZOOM } from './constants.js'
 import { GOVUK_BLUE, DEFRA_GREEN, DEFRA_GREEN_DARK, withAlpha } from '../../config/colours.js'
+import { OVERLAY_Z_INDEX } from '../../config/layers.js'
 
 const MAX_LINES_PER_AXIS = 1000
 const GRID_PAD_SCREEN_PIXELS = 512
@@ -77,12 +78,14 @@ function addGridLayers (map) {
 
   const gridLayer = new WebGLVectorLayer({
     source: gridSource,
-    style: GRID_LINE_STYLE
+    style: GRID_LINE_STYLE,
+    zIndex: OVERLAY_Z_INDEX
   })
 
   const selectedLayer = new WebGLVectorLayer({
     source: selectedSource,
-    style: HIGHLIGHT_STYLE
+    style: HIGHLIGHT_STYLE,
+    zIndex: OVERLAY_Z_INDEX
   })
 
   map.addLayer(gridLayer)
