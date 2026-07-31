@@ -295,6 +295,7 @@ describe('#registerLayersPanel', () => {
 
   beforeEach(() => {
     document.body.innerHTML = '<div id="map-container"></div><div class="im-c-attributions"></div><div id="gep-layer-info-status" role="status" aria-live="polite" aria-atomic="true"></div><div id="gep-layer-info-content"></div>'
+    window.history.replaceState({}, '', '/')
     localStorage.clear()
     interactiveMap = createMapHarness()
     olMap = createOlMapMock()
@@ -1313,7 +1314,15 @@ describe('#registerLayersPanel', () => {
     })
   })
 
+  test('hover is not registered without the debug query param', () => {
+    registerLayersPanel(interactiveMap, olMap)
+
+    expect(olMap.addOverlay).not.toHaveBeenCalled()
+    expect(olMap.on.mock.calls.some(([type]) => type === 'pointermove')).toBe(false)
+  })
+
   test('hover reads feature properties and raster bands under the cursor', () => {
+    window.history.replaceState({}, '', '/?debug')
     olMap._layers.push({
       get: (key) => (key === 'id' ? 'gep-test-cog' : undefined),
       getVisible: () => true,

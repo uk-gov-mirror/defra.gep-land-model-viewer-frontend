@@ -512,6 +512,10 @@ function refreshAttributionsForVisibleLayers (map) {
 // TODO: temp output to inspect the new operational dataset layers
 // inspect functionality is being rewritten so dumping out here for now
 function registerHoverValues (map) {
+  if (!new URLSearchParams(window.location.search).has('debug')) {
+    return
+  }
+
   const element = document.createElement('div')
   element.className = 'app-map__hover-info'
   element.setAttribute('aria-hidden', 'true')
