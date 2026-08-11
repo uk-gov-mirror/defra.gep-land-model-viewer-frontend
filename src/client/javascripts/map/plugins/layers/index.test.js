@@ -51,8 +51,7 @@ vi.mock('../../config/datasets.js', () => ({
         type: 'fgb',
         url: '/land-model/vector/test.fgb',
         opacity: 0.7,
-        styleUrl: '/land-model/vector/test.lyrx',
-        fallbackMinZoom: 7
+        styleUrl: '/land-model/vector/test.lyrx'
       }
     },
     {
@@ -62,8 +61,19 @@ vi.mock('../../config/datasets.js', () => ({
         type: 'fgb',
         url: '/land-model/vector/inline.fgb',
         opacity: 0.7,
-        fallbackMinZoom: 7,
+        minZoom: 7,
         style: { 'fill-color': 'rgba(178, 102, 204, 0.42)' }
+      }
+    },
+    {
+      id: 'test-fgb-min-zoom',
+      label: 'Test FlatGeobuf with a configured minZoom and a layer file',
+      source: {
+        type: 'fgb',
+        url: '/land-model/vector/min-zoom.fgb',
+        opacity: 0.7,
+        styleUrl: '/land-model/vector/min-zoom.lyrx',
+        minZoom: 7
       }
     },
     {
@@ -74,6 +84,51 @@ vi.mock('../../config/datasets.js', () => ({
         url: '/land-model/vector/uncapped.fgb',
         opacity: 0.7,
         style: { 'fill-color': 'rgba(178, 102, 204, 0.42)' }
+      }
+    },
+    {
+      id: 'test-fgb-with-overview',
+      label: 'Test FlatGeobuf with overview tiles',
+      source: {
+        type: 'fgb',
+        url: '/land-model/vector/with-overview.fgb',
+        opacity: 0.7,
+        styleUrl: '/land-model/vector/with-overview.lyrx'
+      },
+      overview: {
+        type: 'pmtiles',
+        url: '/land-model/tiles/with-overview.pmtiles',
+        maxZoom: 4
+      }
+    },
+    {
+      id: 'test-fgb-with-overview-inline',
+      label: 'Test FlatGeobuf overview without a layer file',
+      source: {
+        type: 'fgb',
+        url: '/land-model/vector/with-overview-inline.fgb',
+        opacity: 0.7,
+        style: { 'fill-color': 'rgba(178, 102, 204, 0.42)' }
+      },
+      overview: {
+        type: 'pmtiles',
+        url: '/land-model/tiles/with-overview-inline.pmtiles',
+        maxZoom: 4
+      }
+    },
+    {
+      id: 'test-fgb-bad-overview',
+      label: 'Test FlatGeobuf with an unsupported overview type',
+      source: {
+        type: 'fgb',
+        url: '/land-model/vector/bad-overview.fgb',
+        opacity: 0.7,
+        style: { 'fill-color': 'rgba(178, 102, 204, 0.42)' }
+      },
+      overview: {
+        type: 'cog',
+        url: '/land-model/tiles/bad-overview.tif',
+        maxZoom: 4
       }
     },
     {
@@ -150,12 +205,21 @@ vi.mock('./lyrx-style.js', () => ({
   }))
 }))
 
+vi.mock('./pmtiles-layer.js', () => ({
+  createPmtilesLayer: vi.fn(async (url, layerId, options) => {
+    const layer = {}
+    stubLayer.call(layer, { properties: { id: layerId }, opacity: options.opacity })
+    return layer
+  })
+}))
+
 const { default: GeoTIFF } = await import('ol/source/GeoTIFF.js')
 const { default: WebGLTileLayer } = await import('ol/layer/WebGLTile.js')
 const { default: WebGLVectorLayer } = await import('ol/layer/WebGLVector.js')
 const { default: VectorSource } = await import('ol/source/Vector.js')
 const { createLoader } = await import('flatgeobuf/lib/mjs/ol.js')
 const { loadLyrxStyle } = await import('./lyrx-style.js')
+const { createPmtilesLayer } = await import('./pmtiles-layer.js')
 const { registerLayersPanel, resetCapabilitiesCache } = await import('./index.js')
 const { datasets } = await import('../../config/datasets.js')
 const { renderLayersPanelHtml } = await import('./render.js')
@@ -687,7 +751,25 @@ describe('#registerLayersPanel', () => {
     expect(layerOptions.minZoom).toBe(6)
   })
 
-  test('a FlatGeobuf layer with neither a layer file nor a fallback renders at every zoom', async () => {
+  test('a configured minZoom overrides the layer file minScale', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    createLayerCheckbox('test-fgb-min-zoom').dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(olMap.addLayer).toHaveBeenCalled()
+    })
+
+    // The lyrx mock states maxResolution 28.109, which the configured minZoom
+    // replaces outright rather than stacking with. The dataset asks to draw from
+    // zoom 7, so OL takes 6.
+    const [layerOptions] = WebGLVectorLayer.mock.calls[0]
+    expect(layerOptions.maxResolution).toBeUndefined()
+    expect(layerOptions.minZoom).toBe(6)
+  })
+
+  test('a FlatGeobuf layer with neither a layer file nor a minZoom renders at every zoom', async () => {
     vi.stubGlobal('fetch', vi.fn())
     registerLayersPanel(interactiveMap, olMap)
 
@@ -700,6 +782,107 @@ describe('#registerLayersPanel', () => {
     const [layerOptions] = WebGLVectorLayer.mock.calls[0]
     expect(layerOptions.maxResolution).toBeUndefined()
     expect(layerOptions.minZoom).toBeUndefined()
+  })
+
+  test('an overview adds a second layer and takes the zooms below its max', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    createLayerCheckbox('test-fgb-with-overview').dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(olMap.addLayer).toHaveBeenCalledTimes(2)
+    })
+
+    // The lyrx mock states maxResolution 28.109, which must not cap the detail
+    // layer: the overview covers the far zooms instead.
+    const [detailOptions] = WebGLVectorLayer.mock.calls[0]
+    expect(detailOptions.properties).toEqual({ id: 'gep-test-fgb-with-overview' })
+    expect(detailOptions.minZoom).toBe(4)
+    expect(detailOptions.maxResolution).toBeUndefined()
+
+    expect(createPmtilesLayer).toHaveBeenCalledWith(
+      '/land-model/tiles/with-overview.pmtiles',
+      'gep-test-fgb-with-overview-overview',
+      {
+        style: detailOptions.style,
+        maxZoom: 4,
+        opacity: 0.7
+      }
+    )
+  })
+
+  test('an overview without a layer file uses the inline style for both layers', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    createLayerCheckbox('test-fgb-with-overview-inline').dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(olMap.addLayer).toHaveBeenCalledTimes(2)
+    })
+
+    expect(loadLyrxStyle).not.toHaveBeenCalled()
+
+    const [detailOptions] = WebGLVectorLayer.mock.calls[0]
+    expect(detailOptions.minZoom).toBe(4)
+
+    expect(createPmtilesLayer).toHaveBeenCalledWith(
+      '/land-model/tiles/with-overview-inline.pmtiles',
+      'gep-test-fgb-with-overview-inline-overview',
+      {
+        style: { 'fill-color': 'rgba(178, 102, 204, 0.42)' },
+        maxZoom: 4,
+        opacity: 0.7
+      }
+    )
+  })
+
+  test('unchecking a dataset with an overview hides both of its layers', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    registerLayersPanel(interactiveMap, olMap)
+
+    const checkbox = createLayerCheckbox('test-fgb-with-overview')
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(olMap.addLayer).toHaveBeenCalledTimes(2)
+    })
+
+    checkbox.checked = false
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      for (const layer of olMap._layers) {
+        expect(layer.setVisible).toHaveBeenCalledWith(false)
+      }
+    })
+    expect(olMap.removeLayer).not.toHaveBeenCalled()
+    expect(olMap.addLayer).toHaveBeenCalledTimes(2)
+  })
+
+  test('an unsupported overview type is logged and clears the checkbox', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    registerLayersPanel(interactiveMap, olMap)
+
+    const checkbox = createLayerCheckbox('test-fgb-bad-overview')
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(consoleError).toHaveBeenCalled()
+    })
+
+    expect(consoleError).toHaveBeenCalledWith(
+      'Failed to load data layer test-fgb-bad-overview',
+      expect.objectContaining({
+        message: 'Dataset test-fgb-bad-overview has unsupported overview type "cog", only pmtiles is supported'
+      })
+    )
+    expect(olMap.addLayer).not.toHaveBeenCalled()
+    expect(checkbox.checked).toBe(false)
+
+    consoleError.mockRestore()
   })
 
   test('a layer file that cannot be read is logged and clears the checkbox', async () => {
@@ -1377,5 +1560,25 @@ describe('#registerLayersPanel', () => {
     expect(groups.map(group => group.querySelector('strong').textContent)).toEqual(['Test FlatGeobuf', 'Test COG'])
     expect(element.textContent).toContain('A_pred: Bog')
     expect(element.textContent).toContain('band 1: 142.25')
+  })
+
+  test('hover reads an overview layer, whose tile features have no geometry name', () => {
+    window.history.replaceState({}, '', '/?debug')
+    olMap.forEachFeatureAtPixel.mockImplementation((_pixel, callback, options) => {
+      const layer = { get: (key) => (key === 'id' ? 'gep-test-fgb-with-overview-overview' : undefined) }
+      if (options.layerFilter(layer)) {
+        callback({ getProperties: () => ({ A_pred: 'Bog' }) }, layer)
+      }
+    })
+    registerLayersPanel(interactiveMap, olMap)
+
+    const [, onPointerMove] = olMap.on.mock.calls.find(([type]) => type === 'pointermove')
+    const element = olMap.addOverlay.mock.calls[0][0].getElement()
+
+    onPointerMove({ pixel: [0, 0], coordinate: [1, 2] })
+
+    const [group] = element.querySelectorAll('.app-map__hover-info-group')
+    expect(group.querySelector('strong').textContent).toBe('Test FlatGeobuf with overview tiles')
+    expect(element.textContent).toContain('A_pred: Bog')
   })
 })

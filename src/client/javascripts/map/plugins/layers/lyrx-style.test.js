@@ -182,10 +182,14 @@ describe('#compileLyrxStyle', () => {
     expect(style).toEqual({ 'fill-color': '#c29ed7' })
   })
 
-  test('folds a partly transparent supplier colour into rgba', async () => {
-    const { style } = await compileLyrxStyle(uniqueValueFixture([solidFill([194, 158, 215, 50])]))
+  test('emits a partly transparent supplier colour opaque, leaving opacity to the dataset', async () => {
+    const { style } = await compileLyrxStyle(uniqueValueFixture([
+      solidStroke({ color: rgb([0, 92, 230, 50]) }),
+      solidFill([194, 158, 215, 50])
+    ]))
 
-    expect(style['fill-color'][2]).toBe('rgba(194,158,215,0.5)')
+    expect(style['fill-color'][2]).toBe('#c29ed7')
+    expect(style['stroke-color'][2]).toBe('#005ce6')
   })
 
   test('converts the layer minScale into a maximum resolution', async () => {

@@ -10,8 +10,9 @@ import { bbox } from 'ol/loadingstrategy.js'
 import { createLoader } from 'flatgeobuf/lib/mjs/ol.js'
 import { datasets } from '../../config/datasets.js'
 import { mapStyles } from '../../config/map-styles.js'
-import { datasetForLayer, layerIdFor } from '../../config/layers.js'
+import { datasetForLayer, layerIdFor, overviewIdFor } from '../../config/layers.js'
 import { loadLyrxStyle } from './lyrx-style.js'
+import { createPmtilesLayer } from './pmtiles-layer.js'
 import {
   buildFeatureInfoFragment,
   buildKeyFragment,
@@ -232,6 +233,11 @@ function findLayerById (map, id) {
   return map.getLayers().getArray().find(l => l.get('id') === id)
 }
 
+function findDatasetLayers (map, layerId) {
+  return map.getLayers().getArray()
+    .filter(l => l.get('id') === layerId || l.get('id') === overviewIdFor(layerId))
+}
+
 function getSourceUrl (source) {
   return source.getUrls?.()?.[0] ?? source.getUrl?.()
 }
@@ -383,9 +389,9 @@ function setLayerInputLoading (input, loading) {
 
 async function toggleLayer (dataset, visible, map) {
   const layerId = layerIdFor(dataset)
-  const existing = findLayerById(map, layerId)
-  if (existing) {
-    existing.setVisible(visible)
+  const existing = findDatasetLayers(map, layerId)
+  if (existing.length > 0) {
+    existing.forEach(layer => layer.setVisible(visible))
     return
   }
 
@@ -393,24 +399,21 @@ async function toggleLayer (dataset, visible, map) {
     return
   }
 
-  const layer = await createLayer(dataset, layerId)
-  if (!layer) {
-    return
-  }
-
-  map.addLayer(layer)
+  const layers = await createLayers(dataset, layerId)
+  layers.forEach(layer => map.addLayer(layer))
 }
 
-async function createLayer (dataset, layerId) {
+async function createLayers (dataset, layerId) {
   const { type } = dataset.source
   if (type === 'cog') {
-    return createCogLayer(dataset, layerId)
+    return [await createCogLayer(dataset, layerId)]
   } else if (type === 'fgb') {
-    return createFlatGeobufLayer(dataset, layerId)
+    return createFlatGeobufLayers(dataset, layerId)
   } else if (type === 'wms') {
-    return createWmsLayer(dataset, layerId)
+    const layer = await createWmsLayer(dataset, layerId)
+    return layer ? [layer] : []
   } else {
-    return null
+    return []
   }
 }
 
@@ -454,31 +457,52 @@ async function createCogLayer (dataset, layerId) {
   })
 }
 
-// The layer file's own minScale wins. OL hides a layer at its minZoom, so step
-// back one to make the configured level the first that renders.
-function fallbackMinZoomFor (maxResolution, fallbackMinZoom) {
-  if (maxResolution !== undefined || fallbackMinZoom === undefined) {
+// Datasets state the first zoom that draws. OL hides a layer at its minZoom, so
+// step back one to make that level the first that renders.
+function exclusiveMinZoomFor (firstZoom) {
+  if (firstZoom === undefined) {
     return undefined
   }
 
-  return fallbackMinZoom - 1
+  return firstZoom - 1
 }
 
-async function createFlatGeobufLayer (dataset, layerId) {
-  const { url, styleUrl, attribution, opacity, lowercaseFields = false, style: manualStyle, fallbackMinZoom } = dataset.source
+async function createFlatGeobufLayers (dataset, layerId) {
+  const { url, styleUrl, attribution, opacity, lowercaseFields = false, style: manualStyle, minZoom } = dataset.source
+  const { overview } = dataset
+  if (overview && overview.type !== 'pmtiles') {
+    throw new Error(`Dataset ${dataset.id} has unsupported overview type "${overview.type}", only pmtiles is supported`)
+  }
+
   const { style, maxResolution } = styleUrl ? await loadLyrxStyle(styleUrl, { lowercaseFields }) : {}
   const source = new VectorSource({ strategy: bbox, attributions: attribution })
 
   source.setLoader(createLoader(source, url, EPSG_27700, bbox))
 
-  return new WebGLVectorLayer({
+  // An overview or a configured minZoom overrides the layer file's minScale, and
+  // an overview hands the detail layer the zoom after its own last zoom level.
+  const useLayerFileMinScale = !overview && minZoom === undefined
+  const firstZoom = overview ? overview.maxZoom + 1 : minZoom
+  const detail = new WebGLVectorLayer({
     properties: { id: layerId },
     source,
-    maxResolution,
-    minZoom: fallbackMinZoomFor(maxResolution, fallbackMinZoom),
+    maxResolution: useLayerFileMinScale ? maxResolution : undefined,
+    minZoom: exclusiveMinZoomFor(firstZoom),
     style: manualStyle ?? style,
     opacity
   })
+
+  if (!overview) {
+    return [detail]
+  }
+
+  const overviewLayer = await createPmtilesLayer(overview.url, overviewIdFor(layerId), {
+    style: manualStyle ?? style,
+    maxZoom: overview.maxZoom,
+    opacity
+  })
+
+  return [detail, overviewLayer]
 }
 
 function refreshKey (map) {
@@ -551,7 +575,8 @@ function valuesAt (map, pixel) {
   const groups = []
 
   map.forEachFeatureAtPixel(pixel, (feature, layer) => {
-    const geometryName = feature.getGeometryName()
+    // Overview tiles yield RenderFeatures, which have no named geometry property.
+    const geometryName = feature.getGeometryName?.()
     groups.push({
       label: datasetForLayer(layer, datasets)?.label ?? UNKNOWN_LAYER_LABEL,
       values: Object.entries(feature.getProperties()).filter(([key]) => key !== geometryName)

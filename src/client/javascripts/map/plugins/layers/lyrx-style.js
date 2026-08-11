@@ -1,6 +1,5 @@
 import { convert } from 'geostyler-lyrx-parser/dist/toGeostyler.js'
 import { processSymbolReference } from 'geostyler-lyrx-parser/dist/processSymbolReference.js'
-import { asArray, asString } from 'ol/color.js'
 
 const INCHES_PER_METRE = 39.37
 const ESRI_DPI = 96
@@ -28,6 +27,8 @@ export async function loadLyrxStyle (url, options) {
 /**
  * Compiles an ArcGIS Pro layer file's renderer into an OpenLayers flat style
  * for the WebGL renderer.
+ *
+ * Colours are emitted opaque so overlapping draws do not stack, opacity is set per dataset.
  *
  * @param {object} lyrx Parsed layer file (.lyrx) document
  * @param {object} [options]
@@ -109,7 +110,7 @@ function flatPropertiesFor (symbolizer) {
 
   if (symbolizer.outlineColor) {
     return {
-      'stroke-color': colourFor(symbolizer.outlineColor, symbolizer.outlineOpacity),
+      'stroke-color': symbolizer.outlineColor,
       'stroke-width': symbolizer.outlineWidth
     }
   }
@@ -118,16 +119,7 @@ function flatPropertiesFor (symbolizer) {
     throw new Error('Unsupported fill symbolizer without a colour')
   }
 
-  return { 'fill-color': colourFor(symbolizer.color, symbolizer.fillOpacity) }
-}
-
-function colourFor (colour, opacity) {
-  if (opacity === undefined || opacity === 1) {
-    return colour
-  }
-
-  const [red, green, blue] = asArray(colour)
-  return asString([red, green, blue, opacity])
+  return { 'fill-color': symbolizer.color }
 }
 
 async function fetchLyrx (url) {
