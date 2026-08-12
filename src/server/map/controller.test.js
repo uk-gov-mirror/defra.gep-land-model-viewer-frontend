@@ -26,10 +26,11 @@ describe('#mapController', () => {
     expect(result).toEqual(expect.stringContaining('id="land-map"'))
   })
 
-  test('applies map CSP with EA data host and blob workers on the root route', async () => {
+  test('applies map CSP with the dataset hosts and blob workers on the root route', async () => {
     const mapResp = await server.inject({ method: 'GET', url: '/', auth: mockAuthCredentials })
     const mapCsp = mapResp.headers['content-security-policy']
     expect(mapCsp).toContain('https://environment.data.gov.uk')
+    expect(mapCsp).toContain('https://gepcloudnativedata.blob.core.windows.net')
     expect(mapCsp).toContain('blob:')
 
     const cookiesResp = await server.inject({ method: 'GET', url: '/cookies', auth: mockAuthCredentials })

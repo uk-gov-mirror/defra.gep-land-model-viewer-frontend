@@ -9,6 +9,6 @@
     "strictNullChecks": false,
     "skipLibCheck": true
   },
-  "include": ["./**/*"],
+  "include": ["./**/*", "../vitest.d.ts"],
   "exclude": ["node_modules"]
 }

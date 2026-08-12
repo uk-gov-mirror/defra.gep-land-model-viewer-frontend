@@ -8,8 +8,7 @@
     "noImplicitAny": false,
     "strictNullChecks": false,
     "skipLibCheck": true,
-    "maxNodeModuleJsDepth": 0,
-    "types": ["vitest/globals"]
+    "maxNodeModuleJsDepth": 0
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", ".public", "coverage"]

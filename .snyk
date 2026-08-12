@@ -5,3 +5,7 @@ ignore:
     - '*':
         reason: 'No upgrade or patch available; transitive via @defra/interactive-map > polygon-splitter > glob@8'
         expires: '2026-10-23'
+  'SNYK-JS-FILETYPE-15456217':
+    - '*':
+        reason: 'Not shipped; jimp is aliased to a stub in webpack.config.js so file-type never reaches the bundle'
+        expires: '2027-01-30'
