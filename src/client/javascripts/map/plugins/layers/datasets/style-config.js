@@ -150,11 +150,11 @@ function definitionForFieldValue (styleConfig, value) {
     null
 }
 
-function hasVisibleFill (definition) {
+export function hasVisibleFill (definition) {
   return definition?.visible !== false && definition?.fill?.[RGBA_ALPHA_INDEX] > 0
 }
 
-function hasVisibleStroke (definition) {
+export function hasVisibleStroke (definition) {
   const stroke = strokeFor(definition)
   return stroke?.color?.[RGBA_ALPHA_INDEX] > 0 && stroke.width > 0
 }

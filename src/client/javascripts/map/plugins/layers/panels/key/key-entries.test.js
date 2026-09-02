@@ -1,4 +1,4 @@
-import { vi, describe, test, expect, afterEach } from 'vitest'
+import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 
 vi.mock('../../datasets/layers/wms.js', () => ({
   getSourceUrl: vi.fn(() => '/wms'),
@@ -9,16 +9,45 @@ const { getVisibleWmsLayers } = await import('../../datasets/layers/wms.js')
 const { UNKNOWN_LAYER_LABEL } = await import('../../constants.js')
 const { getKeyEntries } = await import('./key-entries.js')
 
-const DATASETS = [{ id: 'flood', label: 'Flood Zones' }]
+const STYLE_CONFIG = {
+  classes: [{ label: 'Bog', fill: [194, 158, 215, 1] }, {
+    label: 'Outlined site',
+    fill: [178, 102, 204, 1],
+    stroke: { color: [112, 48, 135, 1], width: 1.25 }
+  }, {
+    label: 'Hidden class',
+    fill: [255, 0, 0, 1],
+    visible: false
+  }, {
+    label: 'Transparent class',
+    fill: [0, 0, 0, 0]
+  }]
+}
+const DATASETS = [{ id: 'flood', label: 'Flood Zones' }, {
+  id: 'habitats',
+  label: 'Habitats',
+  source: { type: 'fgb', styleConfig: STYLE_CONFIG }
+}]
 
-function stubLayer (id, layerNames) {
+function stubLayer (id, layerNames, visible = true) {
   return {
     get: key => key === 'id' ? id : undefined,
+    getVisible: () => visible,
     getSource: () => ({ getParams: () => layerNames ? { LAYERS: layerNames } : {} })
   }
 }
 
-const map = /** @type {import('ol/Map').default} */ (/** @type {unknown} */ ({}))
+function stubMap (layers = []) {
+  return /** @type {import('ol/Map').default} */ (/** @type {unknown} */ ({
+    getLayers: () => ({ getArray: () => layers })
+  }))
+}
+
+const map = stubMap()
+
+beforeEach(() => {
+  vi.mocked(getVisibleWmsLayers).mockReturnValue([])
+})
 
 afterEach(() => {
   vi.clearAllMocks()
@@ -44,5 +73,46 @@ describe('getKeyEntries', () => {
     vi.mocked(getVisibleWmsLayers).mockReturnValue([stubLayer('gep-mystery', 'x')])
 
     expect(getKeyEntries(map, DATASETS)[0].label).toBe(UNKNOWN_LAYER_LABEL)
+  })
+
+  test('lists styles once for a dataset with detail and overview layers', () => {
+    const map = stubMap([stubLayer('gep-habitats'), stubLayer('gep-habitats-overview')])
+
+    expect(getKeyEntries(map, DATASETS)).toEqual([{
+      label: 'Habitats',
+      styles: [{
+        label: 'Bog',
+        fill: [194, 158, 215, 1]
+      }, {
+        label: 'Outlined site',
+        fill: [178, 102, 204, 1],
+        stroke: { color: [112, 48, 135, 1], width: 1.25 }
+      }]
+    }])
+  })
+
+  test('leaves out a hidden operational dataset', () => {
+    const map = stubMap([stubLayer('gep-habitats', undefined, false)])
+
+    expect(getKeyEntries(map, DATASETS)).toEqual([])
+  })
+
+  test('includes a visible default style', () => {
+    const datasets = [{
+      id: 'peat',
+      label: 'Peat depth',
+      source: {
+        type: 'cog',
+        styleConfig: {
+          classes: [{ label: 'Up to 20cm', fill: [204, 204, 255, 1] }],
+          default: { label: 'Over 20cm', fill: [0, 0, 224, 1] }
+        }
+      }
+    }]
+
+    expect(getKeyEntries(stubMap([stubLayer('gep-peat')]), datasets)[0].styles).toEqual([
+      { label: 'Up to 20cm', fill: [204, 204, 255, 1] },
+      { label: 'Over 20cm', fill: [0, 0, 224, 1] }
+    ])
   })
 })
