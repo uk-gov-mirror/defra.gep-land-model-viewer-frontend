@@ -1,0 +1,59 @@
+@use "govuk-base" as *;
+
+.app-map__key-panel {
+  padding: 12px;
+}
+
+.app-map__key-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-map__key-entry + .app-map__key-entry {
+  padding-top: 16px;
+  border-top: 1px solid govuk-colour("black", $variant: "tint-80");
+}
+
+.app-map__key-legends {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+
+.app-map__key-legend-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.app-map__key-legend {
+  max-width: 100%;
+  height: auto;
+}
+
+.app-map__key-styles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 16px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-map__key-style-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.app-map__key-style-swatch {
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  flex: 0 0 20px;
+  border: 1px solid rgb(0, 0, 0, 0.25);
+}
