@@ -77,7 +77,7 @@ function createHighlight (map) {
  * @typedef {object} HitOptions
  * @property {(layer: import('../reducer.js').LayerState) => string} label
  * @property {string} [panelTitle]
- * @property {(properties: Record<string, any>[]) => any} toDetails
+ * @property {(properties: Record<string, any>[], layer: import('../reducer.js').LayerState) => any} toDetails
  * @property {(details: any, layer: import('../reducer.js').LayerState) => import('preact').VNode} render
  */
 
@@ -186,7 +186,7 @@ function makeVectorHit ({ highlight, layerState, hitOptions, matches, isCurrent 
     },
 
     async loadDetails () {
-      return hitOptions.toDetails(matches.map((match) => featureProperties(match.feature)))
+      return hitOptions.toDetails(matches.map((match) => featureProperties(match.feature)), layerState)
     },
 
     render: (details) => hitOptions.render(details, layerState)
@@ -245,12 +245,12 @@ function makeCogOverviewHit ({ map, highlight, layerState, hitOptions, detailLay
       }
 
       if (!nearest) {
-        return hitOptions.toDetails([attributesForClass(styleConfig, classDefinition)])
+        return hitOptions.toDetails([attributesForClass(styleConfig, classDefinition)], layerState)
       }
 
       geometries = [geojson.readGeometry(nearest.geometry)]
       highlight.show(geometries)
-      return hitOptions.toDetails([nearest.properties ?? {}])
+      return hitOptions.toDetails([nearest.properties ?? {}], layerState)
     },
 
     render: (details) => hitOptions.render(details, layerState)
@@ -292,7 +292,7 @@ function rasterHitsAt ({ map, layerStates, highlight, getStyle, optionsFor }, pi
       panelTitle: hitOptions.panelTitle,
       stillValid: () => isCurrent() && layer.getVisible(),
       select: () => highlight.showPoint(coords),
-      loadDetails: async () => hitOptions.toDetails([attributes]),
+      loadDetails: async () => hitOptions.toDetails([attributes], layerState),
       render: (details) => hitOptions.render(details, layerState)
     }]
   })

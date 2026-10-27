@@ -37,9 +37,10 @@ test('requires authentication and serves only the parcel features', async () => 
   expect(send).not.toHaveBeenCalled()
 })
 
-test('returns the parcels release with only its FlatGeobuf URL', async () => {
+test('returns the parcels release with its data sources and only its FlatGeobuf URL', async () => {
+  const sources = { land_use: { name: 'OS NGD', date: '2026-10-21T10:47:51.297Z' } }
   serveObjects(send, PREFIX, {
-    'manifest.json': jsonObject(manifest({ 'style.json': 'style-version', 'data.fgb': AWS_VERSION_ID, 'data.tif': null }), 'manifest-version'),
+    'manifest.json': jsonObject({ ...manifest({ 'style.json': 'style-version', 'data.fgb': AWS_VERSION_ID, 'data.tif': null }), sources }, 'manifest-version'),
     'style.json': jsonObject(styleConfig, 'style-version')
   })
 
@@ -49,6 +50,7 @@ test('returns the parcels release with only its FlatGeobuf URL', async () => {
     manifestVersion: 'manifest-version',
     generatedAt,
     styleConfig,
+    sources,
     assets: { fgb: `${ASSETS}/data.fgb?v=3%2FL4kqtJlcpXroDTDmJ%2BrmSpXd3dIbrHY` }
   })
   expect(send.mock.calls.map(([command]) => command.input.Key)).toEqual([`${PREFIX}/manifest.json`, `${PREFIX}/style.json`])

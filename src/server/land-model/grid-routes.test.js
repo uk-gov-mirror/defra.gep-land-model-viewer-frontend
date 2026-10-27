@@ -37,16 +37,20 @@ test('requires authentication and serves only the grid COG and FGBs', async () =
   expect(send).not.toHaveBeenCalled()
 })
 
-test('returns the grid release with its band descriptions and the URLs of the files it lists', async () => {
-  const bands = { landCover: { fields: { dominant: { band: 1, classes: [] } } } }
+test('returns the grid release with its band descriptions, data sources and the URLs of the files it lists', async () => {
+  const bands = { land_cover_dominant_value: { band: 1, classes: [] } }
+  const sources = { land_cover: { name: 'UKCEH Land Cover Map', date: '2026-10-21T11:16:39.058Z' } }
   serveObjects(send, PREFIX, {
-    'manifest.json': jsonObject(manifest({
-      'style.json': 'style-version',
-      'bands.json': 'bands-version',
-      '10.tif': AWS_VERSION_ID,
-      '100.fgb': '100-fgb-version',
-      '1000.fgb': '1000-fgb-version'
-    }), 'manifest-version'),
+    'manifest.json': jsonObject({
+      ...manifest({
+        'style.json': 'style-version',
+        'bands.json': 'bands-version',
+        '10.tif': AWS_VERSION_ID,
+        '100.fgb': '100-fgb-version',
+        '1000.fgb': '1000-fgb-version'
+      }),
+      sources
+    }, 'manifest-version'),
     'style.json': jsonObject(styleConfig, 'style-version'),
     'bands.json': jsonObject(bands, 'bands-version')
   })
@@ -57,6 +61,7 @@ test('returns the grid release with its band descriptions and the URLs of the fi
     manifestVersion: 'manifest-version',
     generatedAt,
     styleConfig,
+    sources,
     bands,
     assets: {
       cog: `${ASSETS}/10.tif?v=3%2FL4kqtJlcpXroDTDmJ%2BrmSpXd3dIbrHY`,
@@ -71,6 +76,20 @@ test('returns the grid release with its band descriptions and the URLs of the fi
     [`${PREFIX}/style.json`, 'style-version'],
     [`${PREFIX}/bands.json`, 'bands-version']
   ])
+})
+
+test('keeps data sources with other fields or no date', async () => {
+  const sources = { land_cover: { name: 'UKCEH Land Cover Map', date: null, theme: 'LAND_COVER' } }
+  serveObjects(send, PREFIX, {
+    'manifest.json': jsonObject({ ...manifest({ 'style.json': null, 'bands.json': null, '10.tif': null }), sources }),
+    'style.json': jsonObject(styleConfig),
+    'bands.json': jsonObject({})
+  })
+
+  const response = await get(LAYER)
+
+  expect(response.statusCode).toBe(200)
+  expect(response.result.sources).toEqual(sources)
 })
 
 test('reads the grid FGBs from the grid prefix at the pinned version', async () => {

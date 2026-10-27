@@ -10,6 +10,7 @@ import { getJson, getManifest } from './client.js'
  * @property {string | null} manifestVersion S3 version ID of manifest.json, null when unavailable
  * @property {string} generatedAt When the pipeline published the release
  * @property {object} styleConfig The release's style.json
+ * @property {Record<string, { name?: string, date?: string | null }>} [sources] The release's data sources by theme, when the manifest has them
  * @property {Record<string, AssetUrls>} assets Asset URLs, with a version parameter when the manifest supplies one
  */
 
@@ -50,11 +51,18 @@ export async function getLayer (prefix, assetFiles, assetsPath, jsonFiles = {}) 
     return null
   }
 
-  const { manifestVersion, generatedAt, files } = release
+  const { manifestVersion, generatedAt, files, sources } = release
   const [styleConfig, json] = await Promise.all([
     getJson(prefix, 'style.json', files['style.json']),
     Promise.all(Object.entries(jsonFiles).map(async ([key, filename]) => [key, await getJson(prefix, filename, files[filename])]))
   ])
 
-  return { manifestVersion, generatedAt, styleConfig, ...Object.fromEntries(json), assets: assetUrls(assetFiles, files, assetsPath) }
+  return {
+    manifestVersion,
+    generatedAt,
+    styleConfig,
+    ...(sources ? { sources } : {}),
+    ...Object.fromEntries(json),
+    assets: assetUrls(assetFiles, files, assetsPath)
+  }
 }

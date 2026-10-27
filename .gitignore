@@ -13,3 +13,6 @@ tsconfig.tsbuildinfo
 
 compose/garage/data/**/*.tif*
 compose/garage/data/**/*.fgb
+
+scripts/land_model/.venv
+__pycache__
